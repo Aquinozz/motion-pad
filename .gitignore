@@ -1,0 +1,12 @@
+# Gradle / Android
+.gradle/
+.kotlin/
+build/
+local.properties
+*.apk
+*.dex
+*.class
+.idea/
+*.iml
+captures/
+tools/setcod/
