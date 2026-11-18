@@ -1,120 +1,120 @@
 # MotionPad
 
-Transforma um celular Android num **Joy-Con (R) com giroscópio** para o Nintendo Switch, via Bluetooth, **sem root**. Feito para jogar *Switch Sports*.
+Turns an Android phone into a **Joy-Con (R) with gyroscope** for the Nintendo Switch, over Bluetooth, **no root required**. Built to play *Switch Sports*.
 
-> ⚠️ Projeto experimental, não afiliado à Nintendo. "Joy-Con" e "Nintendo Switch" são marcas da Nintendo; o nome é usado só porque o Switch exige esse nome no Bluetooth para aceitar o controle.
+> ⚠️ Experimental project, not affiliated with Nintendo. "Joy-Con" and "Nintendo Switch" are trademarks of Nintendo; the name is used only because the Switch requires that Bluetooth name to accept the controller.
 
 ## Status
 
-| Parte | Situação |
+| Part | State |
 |---|---|
-| Pareamento com o Switch | ✅ funciona (no HyperOS precisou de ajuda via adb, ver abaixo) |
-| Handshake completo (info, SPI, modo 0x30, IMU, luzes, vibração) | ✅ |
-| Botões e analógico | ✅ chegam ao Switch |
-| Giroscópio/acelerômetro (IMU modo 1 e **modo 2 / quaternion**) | ✅ implementado, ⏳ falta validar dentro do jogo |
-| Vibração (HD Rumble → vibrador do celular) | ✅ aproximada |
-| Reconexão automática ao último Switch | ✅ |
-| **Switch Sports** | ❌ ainda não passa da tela de controles: o jogo exige um **par** de Joy-Cons (L + R) para o jogador 1, e um celular só emula um lado. Ver [Próximos passos](#próximos-passos). |
+| Pairing with the Switch | ✅ works (on HyperOS it needed help via adb, see below) |
+| Full handshake (info, SPI, 0x30 mode, IMU, lights, rumble) | ✅ |
+| Buttons and analog stick | ✅ reach the Switch |
+| Gyroscope/accelerometer (IMU mode 1 and **mode 2 / quaternion**) | ✅ implemented, ⏳ still needs in-game validation |
+| Rumble (HD Rumble → phone vibrator) | ✅ approximated |
+| Automatic reconnection to the last Switch | ✅ |
+| **Switch Sports** | ❌ doesn't get past the controllers screen yet: the game requires a **pair** of Joy-Cons (L + R) for player 1, and one phone only emulates one side. See [Next steps](#next-steps). |
 
-Testado em: POCO F6 Pro (HyperOS 3, Android 16) + Nintendo Switch Lite.
+Tested on: POCO F6 Pro (HyperOS 3, Android 16) + Nintendo Switch Lite.
 
-## Como funciona
+## How it works
 
 ```
-Celular (Android 9+)                              Nintendo Switch
+Phone (Android 9+)                                Nintendo Switch
 ┌───────────────────────────┐   Bluetooth HID    ┌──────────────────┐
-│ MotionPad                 │ ◄────────────────► │ procura "Joy-Con │
-│  ├ BluetoothHidDevice     │  relatório 0x30    │ (R)" em Mudar    │
-│  ├ protocolo Joy-Con      │  a cada 15 ms      │ empunhadura/ordem│
-│  ├ giroscópio 480 Hz      │  subcomandos 0x01  │                  │
-│  └ vibração               │  rumble 0x10       │                  │
+│ MotionPad                 │ ◄────────────────► │ looks for "Joy-  │
+│  ├ BluetoothHidDevice     │  0x30 report       │ Con (R)" in      │
+│  ├ Joy-Con protocol       │  every 15 ms       │ Change Grip/Order│
+│  ├ gyroscope 480 Hz       │  0x01 subcommands  │                  │
+│  └ rumble                 │  0x10 rumble       │                  │
 └───────────────────────────┘                    └──────────────────┘
 ```
 
-- **Bluetooth:** usa a API pública `BluetoothHidDevice` (Android 9+). O app registra um descritor HID igual ao do controle oficial e troca o nome do Bluetooth para `Joy-Con (R)`.
-- **Protocolo:** responde aos subcomandos do Switch (0x02 info do aparelho, 0x10 leitura de SPI com calibração, 0x03 modo, 0x40 IMU, 0x48 vibração, 0x30 luzes...). A memória SPI é emulada em [`SpiFlash.kt`](app/src/main/java/com/motionpad/app/SpiFlash.kt) com calibração "limpa" (4096 = 1 G; 13371/936 LSB por °/s).
-- **Movimento:** [`MotionSensor.kt`](app/src/main/java/com/motionpad/app/MotionSensor.kt) **integra** o giroscópio (ângulo girado) em vez de mandar só a velocidade. Assim a rotação total recebida pelo Switch é exata mesmo com variação de tempo no Bluetooth.
-  - **Modo 1** (dados brutos): 3 amostras de aceleração + velocidade angular por relatório.
-  - **Modo 2** (o que o Switch atual pede): o controle integra a orientação num **quaternion** e envia compactado em bits. Formato portado do projeto [switch-pico](https://github.com/jyapayne/switch-pico) (MIT). Mandar dados do modo 1 quando o Switch pede o modo 2 faz o jogo ver rotação aleatória.
-- **Eixos:** celular em pé, tela para cima, topo apontando para a TV = Joy-Con apontado para a TV. `Joy-Con X = celular Y`, `Joy-Con Y = celular X`, `Joy-Con Z = −celular Z`. A opção "Eixos alternativos" gira 180° no eixo longo.
+- **Bluetooth:** uses the public `BluetoothHidDevice` API (Android 9+). The app registers an HID descriptor identical to the official controller's and changes the Bluetooth name to `Joy-Con (R)`.
+- **Protocol:** answers the Switch's subcommands (0x02 device info, 0x10 SPI read with calibration, 0x03 mode, 0x40 IMU, 0x48 rumble, 0x30 lights...). The SPI memory is emulated in [`SpiFlash.kt`](app/src/main/java/com/motionpad/app/SpiFlash.kt) with "clean" calibration (4096 = 1 G; 13371/936 LSB per °/s).
+- **Motion:** [`MotionSensor.kt`](app/src/main/java/com/motionpad/app/MotionSensor.kt) **integrates** the gyroscope (angle rotated) instead of sending only the angular velocity. This way the total rotation received by the Switch is exact even with Bluetooth timing jitter.
+  - **Mode 1** (raw data): 3 samples of acceleration + angular velocity per report.
+  - **Mode 2** (what the current Switch asks for): the controller integrates the orientation into a **quaternion** and sends it bit-packed. Format ported from the [switch-pico](https://github.com/jyapayne/switch-pico) project (MIT). Sending mode 1 data when the Switch asks for mode 2 makes the game see random rotation.
+- **Axes:** phone held upright, screen facing up, top pointing at the TV = Joy-Con pointing at the TV. `Joy-Con X = phone Y`, `Joy-Con Y = phone X`, `Joy-Con Z = −phone Z`. The "Alternate axes" option rotates 180° around the long axis.
 
-### Código
+### Code
 
-| Arquivo | O que faz |
+| File | What it does |
 |---|---|
-| [`JoyConEmulator.kt`](app/src/main/java/com/motionpad/app/JoyConEmulator.kt) | Bluetooth HID, subcomandos, envio a cada 15 ms, codificação da IMU (modo 1 e 2) |
-| [`SpiFlash.kt`](app/src/main/java/com/motionpad/app/SpiFlash.kt) | Memória SPI virtual (calibração, cores, parâmetros) |
-| [`MotionSensor.kt`](app/src/main/java/com/motionpad/app/MotionSensor.kt) | Giroscópio/acelerômetro na taxa máxima, integração |
-| [`Rumble.kt`](app/src/main/java/com/motionpad/app/Rumble.kt) | HD Rumble → vibrador do celular |
-| [`MainActivity.kt`](app/src/main/java/com/motionpad/app/MainActivity.kt), [`PadViews.kt`](app/src/main/java/com/motionpad/app/PadViews.kt) | Interface: botões, analógico, log de diagnóstico |
-| [`tools/adb-helpers/`](tools/adb-helpers) | Programas que rodam como `shell` via adb (ver abaixo) |
+| [`JoyConEmulator.kt`](app/src/main/java/com/motionpad/app/JoyConEmulator.kt) | Bluetooth HID, subcommands, sending every 15 ms, IMU encoding (mode 1 and 2) |
+| [`SpiFlash.kt`](app/src/main/java/com/motionpad/app/SpiFlash.kt) | Virtual SPI memory (calibration, colors, parameters) |
+| [`MotionSensor.kt`](app/src/main/java/com/motionpad/app/MotionSensor.kt) | Gyroscope/accelerometer at the maximum rate, integration |
+| [`Rumble.kt`](app/src/main/java/com/motionpad/app/Rumble.kt) | HD Rumble → phone vibrator |
+| [`MainActivity.kt`](app/src/main/java/com/motionpad/app/MainActivity.kt), [`PadViews.kt`](app/src/main/java/com/motionpad/app/PadViews.kt) | UI: buttons, analog stick, diagnostic log |
+| [`tools/adb-helpers/`](tools/adb-helpers) | Programs that run as `shell` via adb (see below) |
 
-## Compilar
+## Build
 
-Requisitos: JDK 17+ e Android SDK (plataforma 35, build-tools 35). Gradle 8.10+.
+Requirements: JDK 17+ and Android SDK (platform 35, build-tools 35). Gradle 8.10+.
 
 ```bash
-echo "sdk.dir=/caminho/para/Android/Sdk" > local.properties
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 gradle assembleDebug
-# APK em app/build/outputs/apk/debug/app-debug.apk
+# APK at app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Usar
+## Usage
 
-1. Instale o APK e abra o MotionPad. Aceite "Dispositivos próximos".
-2. No Switch: **Controles → Mudar empunhadura/ordem**.
-3. No app: **Parear** e aceite deixar o celular visível. Volte para o app.
-4. Se aparecer "Parear com Nintendo Switch?", aceite e volte para o app.
-5. Nas próximas vezes: abra o app e toque **Reconectar** (ou ele reconecta sozinho).
+1. Install the APK and open MotionPad. Allow "Nearby devices".
+2. On the Switch: **Controllers → Change Grip/Order**.
+3. In the app: tap **Pair** and allow the phone to be visible. Go back to the app.
+4. If "Pair with Nintendo Switch?" appears, accept and go back to the app.
+5. Next times: open the app and tap **Reconnect** (or it reconnects on its own).
 
-**Mantenha o MotionPad aberto na tela.** O Android cancela o modo controle (HID) assim que o app sai do primeiro plano (ex.: abrir a câmera). O app re-registra sozinho ao voltar.
+**Keep MotionPad open on screen.** Android cancels controller (HID) mode as soon as the app leaves the foreground (e.g. opening the camera). The app re-registers on its own when it comes back.
 
-## Problemas encontrados (e soluções)
+## Problems found (and solutions)
 
-Documentado na ordem em que apareceram, para quem for tentar em outros aparelhos.
+Documented in the order they showed up, for anyone trying on other devices.
 
-1. **"HID registrado=false" depois de tocar em Parear.** A janela do sistema "tornar visível" tira o app do primeiro plano e o `HidDeviceService` desregistra o app. → O app re-registra em `onResume`.
-2. **Classe do Bluetooth (CoD) = telefone (0x5A020C).** No HyperOS 3 / Android 16 ela vem da propriedade somente-leitura `bluetooth.device.class_of_device`; `setprop` é negado, `settings put global bluetooth_class_of_device` é negado (sem `WRITE_SECURE_SETTINGS`) e `IBluetooth.setBluetoothClass` não existe mais. **Mas não era o problema:** o Switch encontra e conecta mesmo com classe de telefone — ele filtra pelo **nome**.
-3. **O HyperOS trocava o nome de volta** (ex.: ao abrir Configurações → Bluetooth). → O app reaplica `Joy-Con (R)` ao voltar para a tela.
-4. **Pareamento cancelado em silêncio.** O app Configurações do HyperOS (`BluetoothPairingRequest.onReceive`) cancela qualquer pareamento de aparelhos que estejam na **lista de bloqueio de Bluetooth** (SharedPreferences `BlackfileForBluetoothDevice`). O Switch estava nela. → Remover o Switch da lista em Configurações → Bluetooth → dispositivos bloqueados. A tela pode ser aberta via adb:
+1. **"HID registered=false" after tapping Pair.** The system "make visible" dialog takes the app out of the foreground and `HidDeviceService` unregisters the app. → The app re-registers in `onResume`.
+2. **Bluetooth Class of Device (CoD) = phone (0x5A020C).** On HyperOS 3 / Android 16 it comes from the read-only property `bluetooth.device.class_of_device`; `setprop` is denied, `settings put global bluetooth_class_of_device` is denied (no `WRITE_SECURE_SETTINGS`) and `IBluetooth.setBluetoothClass` no longer exists. **But that wasn't the problem:** the Switch finds and connects even with a phone class — it filters by **name**.
+3. **HyperOS kept changing the name back** (e.g. when opening Settings → Bluetooth). → The app reapplies `Joy-Con (R)` when it returns to the screen.
+4. **Pairing silently cancelled.** The HyperOS Settings app (`BluetoothPairingRequest.onReceive`) cancels any pairing from devices on the **Bluetooth block list** (SharedPreferences `BlackfileForBluetoothDevice`). The Switch was on it. → Remove the Switch from the list in Settings → Bluetooth → blocked devices. The screen can be opened via adb:
    ```bash
    adb shell am start -n com.android.settings/.SubSettings --es :settings:show_fragment com.android.settings.bluetooth.BluetoothBlacklistFragment
    ```
-5. **Confirmar o pareamento automaticamente.** O usuário `shell` do adb tem `BLUETOOTH_PRIVILEGED`, então [`PairHelper`](tools/adb-helpers/PairHelper.java) chama `setPairingConfirmation(true)` assim que o Switch inicia o pareamento.
-6. **Switch repetia o subcomando 0x21 (~400×).** A resposta à configuração do MCU de NFC/IR estava errada. → Responder só com ACK `0x80` (igual ao switch-pico).
-7. **Jogo travado/movimento aleatório.** O Switch liga a IMU com `0x40 0x02` (modo quaternion) e o app mandava o formato do modo 1. → Implementado o modo 2.
-8. **Switch Sports pede L + R.** Ver abaixo.
+5. **Confirming the pairing automatically.** The adb `shell` user has `BLUETOOTH_PRIVILEGED`, so [`PairHelper`](tools/adb-helpers/PairHelper.java) calls `setPairingConfirmation(true)` as soon as the Switch starts pairing.
+6. **Switch repeated subcommand 0x21 (~400×).** The reply to the NFC/IR MCU configuration was wrong. → Reply with just the `0x80` ACK (same as switch-pico).
+7. **Game frozen/random motion.** The Switch enables the IMU with `0x40 0x02` (quaternion mode) and the app was sending the mode 1 format. → Implemented mode 2.
+8. **Switch Sports asks for L + R.** See below.
 
-### adb sem cabo (HyperOS)
+### Wireless adb (HyperOS)
 
-No POCO a janela "Permitir depuração USB?" nunca apareceu. Funcionou pela **Depuração por Wi-Fi**: abra "Parear com código de pareamento" no celular e use o mDNS do adb para achar a porta:
+On the POCO the "Allow USB debugging?" dialog never appeared. It worked through **Wireless debugging**: open "Pair device with pairing code" on the phone and use adb's mDNS to find the port:
 
 ```bash
-adb mdns services          # mostra _adb-tls-pairing._tcp  IP:PORTA
-adb pair IP:PORTA CODIGO
-adb connect IP:PORTA_DA_TELA_PRINCIPAL
+adb mdns services          # shows _adb-tls-pairing._tcp  IP:PORT
+adb pair IP:PORT CODE
+adb connect IP:MAIN_SCREEN_PORT
 ```
 
-### Ajudantes via adb
+### adb helpers
 
 ```bash
-ANDROID_HOME=/caminho/do/sdk tools/adb-helpers/build.sh
-# confirmar pareamento por 5 min (endereço do Switch aparece no logcat ao conectar):
+ANDROID_HOME=/path/to/sdk tools/adb-helpers/build.sh
+# confirm pairing for 5 min (the Switch address shows up in logcat when it connects):
 adb shell CLASSPATH=/data/local/tmp/pairhelper.dex app_process /system/bin PairHelper XX:XX:XX:XX:XX:XX 300
 ```
 
-`SetCod.java` foi a tentativa de mudar a classe do Bluetooth; **não funciona no Android 16** (método removido) e ficou só como registro.
+`SetCod.java` was the attempt to change the Bluetooth class; it **doesn't work on Android 16** (method removed) and is kept only for the record.
 
-## Próximos passos
+## Next steps
 
-- [ ] **Modo Joy-Con (L)** no app (direcional, L/ZL/−/Capture, eixos do lado esquerdo), para usar **dois celulares** como par e passar da tela de controles do Switch Sports. Alternativa: um Joy-Con (L) de verdade + celular como (R).
-- [ ] Validar o modo 2 da IMU dentro do jogo e ajustar sensibilidade/eixos.
-- [ ] Mostrar na tela do app quais botões o Switch está recebendo.
-- [ ] Ícone e interface melhores.
+- [ ] **Joy-Con (L) mode** in the app (D-pad, L/ZL/−/Capture, left-side axes), to use **two phones** as a pair and get past the Switch Sports controllers screen. Alternative: a real Joy-Con (L) + phone as (R).
+- [ ] Validate IMU mode 2 in-game and tune sensitivity/axes.
+- [ ] Show on the app screen which buttons the Switch is receiving.
+- [ ] Better icon and UI.
 
-## Créditos
+## Credits
 
-- [dekuNukem/Nintendo_Switch_Reverse_Engineering](https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering) — protocolo Bluetooth, subcomandos, SPI.
-- [jyapayne/switch-pico](https://github.com/jyapayne/switch-pico) (MIT) — formato do IMU modo 2 (quaternion) e resposta ao 0x21.
-- [ndeadly/MissionControl](https://github.com/ndeadly/MissionControl) — referência de como o Switch filtra controles por nome/classe.
-- Descritor HID e SPI baseados em joycontrol / nxbt.
+- [dekuNukem/Nintendo_Switch_Reverse_Engineering](https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering) — Bluetooth protocol, subcommands, SPI.
+- [jyapayne/switch-pico](https://github.com/jyapayne/switch-pico) (MIT) — IMU mode 2 (quaternion) format and the 0x21 reply.
+- [ndeadly/MissionControl](https://github.com/ndeadly/MissionControl) — reference for how the Switch filters controllers by name/class.
+- HID descriptor and SPI based on joycontrol / nxbt.
